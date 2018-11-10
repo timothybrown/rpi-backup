@@ -1,0 +1,145 @@
+#!/bin/bash
+
+# RPI-Backup - (C) 2018 TimothyBrown
+# MIT License
+version="v077"
+# Check to see what compression tools are available.
+xz="No" && test -z "$(which xz)" || xz="$(which xz)"
+p7z="No" && test -z "$(which 7za)" || p7z="$(which 7za)"
+gzip="No" && test -z "$(which gzip)" || gzip="$(which gzip)"
+zip="No" && test -z "$(which zip)" || zip="$(which zip)"
+bzip2="No" && test -z "$(which bzip2)" || bzip2="$(which bzip2)"
+z="No" && test -z "$(which compress)" || z="$(which compress)"
+dd="No" && test -z "$(which dd)" || dd="$(which dd)"
+if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+  echo   "┌──────────────────────────────────────────────────────────────────────────────┐"
+  echo   "│ rpi-backup $version by Timothy Brown                                             │"
+  echo   "├──────────────────────────────────────────────────────────────────────────────┤"
+  echo   "│                                                                              │"
+  echo   "│ Syntax: sudo rpi-backup /dev/disk# /path/to/backup.img [compression method]  │"
+  echo   "│                                                                              │"
+  echo   "│                              Compression Method                              │"
+  echo   "├──────────┬──────────┬───────────┬────────────────────┬───────────┬───────────┤"
+  echo   "│ Argument │   Tool   │ Algorithm │     Available      │ - Speed + │ - Ratio + │"
+  echo   "├──────────┼──────────┼───────────┼────────────────────┼───────────┼───────────┤"
+  printf "│  xz      │ XZ Utils │ LZMA2     │ %-19s│ ╍╍◆╍╍╍╍╍╍ │ ╍╍╍╍╍╍◆╍╍ │\n" "$xz"
+  printf "│  7z      │ 7-Zip    │ LZMA2     │ %-19s│ ╍◆╍╍╍╍╍╍╍ │ ╍╍╍╍╍╍╍◆╍ │\n" "$p7z"
+  printf "│  gz      │ GNU Zip  │ DEFLATE   │ %-19s│ ╍╍╍╍◆╍╍╍╍ │ ╍╍╍╍◆╍╍╍╍ │\n" "$gzip"
+  printf "│  zip     │ Info-ZIP │ DEFLATE   │ %-19s│ ╍╍╍╍◆╍╍╍╍ │ ╍╍╍╍◆╍╍╍╍ │\n" "$zip"
+  printf "│  bz2     │ bzip2    │ BWT       │ %-19s│ ╍╍╍◆╍╍╍╍╍ │ ╍╍╍╍╍◆╍╍╍ │\n" "$bzip2"
+  printf "│  z       │ compress │ LZW       │ %-19s│ ╍╍╍╍╍◆╍╍╍ │ ╍╍◆╍╍╍╍╍╍ │\n" "$z"
+  printf "│  raw     │ dd       │ None      │ %-19s│ ╍╍╍╍╍╍╍╍◆ │ ◆╍╍╍╍╍╍╍╍ │\n" "$dd"
+  echo   "└──────────┴──────────┴───────────┴────────────────────┴───────────┴───────────┘"
+  echo   "                                                                                "
+  exit 0
+fi
+set -e
+if [ -b "$1" ]; then
+  source="$1"
+  diskutil unmountDisk $source 1> /dev/null
+  sourceSize=$(diskutil info $source | grep 'Disk Size' | grep -Eio '[0-9]{9,}')
+else
+  echo "Error: Source $1 is not a device!  Aborting..."
+  exit 1
+fi
+
+if test -f ${2%%.*}.*; then
+  echo "Error: Target ${2%%.*}.* already exsists! Aborting..."
+  exit 1
+else
+  target="$2"
+fi
+
+case "$3" in
+  "xz-min")
+    if [ "$xz" == "No" ]; then
+      echo "XZ Utils Not Available! Please install with `brew install xz` and try again."
+    fi
+    target="${target%%.*}.img.xz"
+    compressCmd="xz -z -k -T0 -3 - > $target"
+    compressText="XZ Utils ● LZMA2 [Fast]"
+    ;;
+  "xz")
+    if [ "$xz" == "No" ]; then
+      echo "XZ Utils Not Available! Please install with `brew install xz` and try again."
+    fi
+    target="${target%%.*}.img.xz"
+    compressCmd="xz -z -k -T0 -6 - > $target"
+    compressText="XZ Utils ● LZMA2 [Normal]"
+    ;;
+  "xz-max")
+    if [ "$xz" == "No" ]; then
+      echo "XZ Utils Not Available! Please install with `brew install xz` and try again."
+    fi
+    target="${target%%.*}.img.xz"
+    compressCmd="xz -z -k -T0 -9e - > $target"
+    compressText="XZ Utils ● LZMA2 [High]"
+    ;;
+  "7z-min")
+    if [ "$p7z" == "No" ]; then
+      echo "7-Zip Not Available! Please install with `brew install p7zip` and try again."
+    fi
+    target="${target%%.*}.7z"
+    compressCmd="7za a $target -mx=1 -myx=1 -bd -bso0 -bse0 -bsp0 -si$(basename ${target%%.*}.img)"
+    compressText="7-Zip ● LZMA2 [Fast]"
+    ;;
+  "7z")
+    if [ "$p7z" == "No" ]; then
+      echo "7-Zip Not Available! Please install with `brew install p7zip` and try again."
+    fi
+    target="${target%%.*}.7z"
+    compressCmd="7za a $target -mx=5 -myx=5 -bd -bso0 -bse0 -bsp0 -si$(basename ${target%%.*}.img)"
+    compressText="7-Zip ● LZMA2 [Normal]"
+    ;;
+  "7z-max")
+    if [ "$p7z" == "No" ]; then
+      echo "7-Zip Not Available! Please install with `brew install p7zip` and try again."
+    fi
+    target="${target%%.*}.7z"
+    compressCmd="7za a $target -mx=9 -myx=9 -bd -bso0 -bse0 -bsp0 -si$(basename ${target%%.*}.img)"
+    compressText="7-Zip ● LZMA2 [High]"
+    ;;
+  "gz")
+    target="${target%%.*}.img.gz"
+    compressCmd="gzip -c > $target"
+    compressText="GNU Zip ● DEFLATE"
+    ;;
+  "zip")
+    target="${target%%.*}.img.zip"
+    compressCmd="zip -q > $target"
+    compressText="Info-ZIP ● DEFLATE"
+    ;;
+  "bz2")
+    target="${target%%.*}.img.bz2"
+    compressCmd="gzip -c > $target"
+    compressText="bzip2 ● Burrows-Wheeler Transform"
+    ;;
+  "z")
+    target="${target%%.*}.img.z"
+    compressCmd="compress > $target"
+    compressText="compress ● Lempel-Ziv-Welch"
+    ;;
+  "raw")
+    target="${target%%.*}.img"
+    compressCmd="dd of=$target bs=1m 2> /dev/null"
+    compressText="None ● Raw Disk Image"
+    ;;
+  *)
+    echo "Must supply a valid compression method!"
+    echo "Try: $0 $1 zip"
+    exit 1
+esac
+
+echo   "┌──────────────────────────────────────────────────────────────────────────────┐"
+printf "│ %-76s │\n" "rpi-backup $version by Timothy Brown"
+echo   "├─────────────┬────────────────────────────────────────────────────────────────┤"
+printf "│    Source   │ %-63s│\n" "$source ($(diskutil info $source | grep 'Disk Size' | cut -d':' -f2 | cut -d' ' -f17)GB)"
+echo   "├─────────────┼────────────────────────────────────────────────────────────────┤"
+printf "│    Target   │ %-63s│\n" "$target"
+echo   "├─────────────┼────────────────────────────────────────────────────────────────┤"
+printf "│ Compression │ %-65s│\n" "$compressText"
+echo   "└─────────────┴────────────────────────────────────────────────────────────────┘"
+
+bash -c "dd if=$source bs=1m 2> /dev/null | pv -w80 -s $sourceSize | $compressCmd" && \
+echo "Backup Complete! [$(basename $source) $(diskutil info $source | grep 'Disk Size' | cut -d':' -f2 | cut -d' ' -f17)GB] ➤ [$(basename $target) $(du -h $target | cut -f1)B]"
+exit 0
